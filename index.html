@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta
@@ -11,129 +11,168 @@
       name="apple-mobile-web-app-status-bar-style"
       content="black-translucent"
     />
-    <title>MPlayer</title>
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
-    />
+    <link rel="manifest" href="manifest.json" />
+    <title>Music Player</title>
     <style>
-      /* Estilos gerais */
       body {
+        font-family: Arial, sans-serif;
+        background-color: #333;
+        color: #fff;
         margin: 0;
         padding: 0;
         display: flex;
-        justify-content: center;
+        flex-direction: column;
         align-items: center;
+        justify-content: center;
         height: 100vh;
-        background: #2f2f2f;
-        font-family: Arial, sans-serif;
+        background-size: cover;
+        background-position: center;
       }
-
-      .main-container {
-        text-align: center;
-        width: 100%;
-        height: 90%;
-        max-width: 400px;
-        padding: 20px;
+      #fileList {
+        margin: 20px;
+        max-height: 200px;
+        overflow-y: auto;
       }
-
-      #audioPlayer {
-        display: none; /* Esconde o player de áudio padrão */
+      .fileItem {
+        padding: 10px;
+        margin: 5px;
+        background-color: #444;
+        cursor: pointer;
+        border-radius: 5px;
       }
-
+      .fileItem:hover {
+        background-color: #555;
+      }
       #controls {
         display: flex;
-        justify-content: center;
         gap: 10px;
         margin-top: 20px;
       }
-
-      #controls button {
-        font-size: 1.5em;
-        background: none;
+      button {
+        padding: 10px 20px;
+        background-color: #007bff;
+        color: #fff;
         border: none;
+        border-radius: 5px;
         cursor: pointer;
-        color: #7e7e7e;
       }
-
-      #controls button:hover {
-        color: #007bff;
+      button.active {
+        background-color: #0056b3;
       }
-
-      #lyrics-container {
-        height: 90%; /* Ajuste a altura conforme necessário */
+      #lyrics {
         margin-top: 20px;
-        font-size: 2em;
-        line-height: 1.5;
+        max-height: 200px;
         overflow-y: auto;
         text-align: center;
       }
-
-      #lyrics {
-        margin-top: 20px;
-        color: #7e7e7e;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-      }
-
       .current-line {
-        background: rgba(0, 0, 0, 0.4);
-        color: #fff;
+        color: #007bff;
+        font-weight: bold;
+      }
+      #albumArt {
+        width: 100px;
+        height: 100px;
         border-radius: 10px;
-        padding: 10px;
+        margin-bottom: 20px;
       }
     </style>
   </head>
   <body>
-    <div class="main-container">
-      <audio id="audioPlayer"></audio>
-      <div id="controls">
-        <button id="selectFolderButton"><i class="fas fa-plus"></i></button>
-        <button id="prevButton"><i class="fas fa-backward"></i></button>
-        <button id="playPauseButton"><i class="fas fa-play"></i></button>
-        <button id="nextButton"><i class="fas fa-forward"></i></button>
-        <button id="repeatButton"><i class="fas fa-redo"></i></button>
-      </div>
-      <div id="lyrics-container">
-        <div id="lyrics">Letras aparecerão aqui.</div>
-      </div>
+    <img id="albumArt" src="./placeholder.png" alt="Album Art" />
+    <h1 id="songTitle">Desconhecido</h1>
+    <h2 id="songArtist">Artista Desconhecido</h2>
+    <button id="selectFolderButton">Selecionar Pasta</button>
+    <div id="fileList"></div>
+    <div id="controls">
+      <button id="prevButton">Anterior</button>
+      <button id="nextButton">Próxima</button>
+      <button id="repeatButton">Repetir</button>
+      <button id="fullscreenButton">Tela Cheia</button>
     </div>
+    <audio id="audioPlayer" controls></audio>
+    <div id="lyrics"></div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.7/jsmediatags.min.js"></script>
     <script>
       let lyricsData = []; // Armazenará as letras com seus timestamps
-      let fileList = []; // Lista de arquivos carregados
+      let currentFolderHandle; // Armazenará a referência da pasta selecionada
       let currentFileIndex = 0; // Índice do arquivo atual na lista
+      let fileList = []; // Lista de arquivos carregados
       let isRepeat = false; // Controle de repetição
 
-      // Botão para selecionar arquivos MP3
+      // Botão para selecionar uma pasta
       document
         .getElementById("selectFolderButton")
-        .addEventListener("click", () => {
-          const fileInput = document.createElement("input");
-          fileInput.type = "file";
-          fileInput.accept = ".mp3";
-          fileInput.multiple = true; // Permite selecionar vários arquivos
-          fileInput.addEventListener("change", async (event) => {
-            const files = Array.from(event.target.files);
-            fileList = files;
-            if (files.length > 0) {
-              loadFile(files[0]);
-              currentFileIndex = 0;
-            }
-          });
-          fileInput.click();
+        .addEventListener("click", async () => {
+          try {
+            currentFolderHandle = await window.showDirectoryPicker();
+            await listFiles(currentFolderHandle);
+          } catch (error) {
+            console.error("Erro ao selecionar pasta:", error);
+          }
         });
 
-      // Carrega e processa o arquivo MP3
+      // Listar arquivos MP3 na pasta selecionada e subpastas
+      async function listFiles(folderHandle) {
+        const fileListDiv = document.getElementById("fileList");
+        fileListDiv.innerHTML = ""; // Limpa a lista anterior
+        fileList = []; // Limpa a lista de arquivos
+
+        async function scanFolder(handle, path = "") {
+          for await (const entry of handle.values()) {
+            if (entry.kind === "file" && entry.name.endsWith(".mp3")) {
+              const file = await entry.getFile();
+              const fileItem = document.createElement("div");
+              fileItem.className = "fileItem";
+              fileItem.dataset.src = URL.createObjectURL(file); // Armazena a URL do arquivo
+
+              jsmediatags.read(file, {
+                onSuccess: function (tag) {
+                  const artist = tag.tags.artist || "Artista Desconhecido";
+                  const title = tag.tags.title || "Música Desconhecida";
+                  fileItem.textContent = `${artist} - ${title}`;
+                },
+                onError: function (error) {
+                  console.log("Erro ao ler metadados:", error);
+                  fileItem.textContent = entry.name;
+                },
+              });
+
+              fileItem.addEventListener("click", async () => {
+                loadFile(file);
+                document.getElementById("audioPlayer").play(); // Toca a música automaticamente
+              });
+
+              fileListDiv.appendChild(fileItem);
+              fileList.push(file); // Adiciona o arquivo à lista
+            } else if (entry.kind === "directory") {
+              await scanFolder(entry, `${path}/${entry.name}`);
+            }
+          }
+        }
+
+        await scanFolder(folderHandle);
+
+        // Carregar o primeiro arquivo da lista
+        if (fileList.length > 0) {
+          loadFile(fileList[0]);
+          currentFileIndex = 0;
+        }
+      }
+
+      // Carregar e processar o arquivo MP3
       function loadFile(file) {
         const audioPlayer = document.getElementById("audioPlayer");
+
+        // Configura o arquivo de áudio no player
         audioPlayer.src = URL.createObjectURL(file);
-        audioPlayer.load();
+        audioPlayer.load(); // Carrega o arquivo
 
         jsmediatags.read(file, {
           onSuccess: function (tag) {
+            displayMetadata(tag);
+            setBackground(tag);
+            updateAlbumArt(tag);
             loadLyrics(tag);
           },
           onError: function (error) {
@@ -142,7 +181,40 @@
         });
       }
 
-      // Carrega e exibe as letras no formato LRC
+      // Exibir metadados (título, artista, álbum)
+      function displayMetadata(tag) {
+        const songTitle = document.getElementById("songTitle");
+        const songArtist = document.getElementById("songArtist");
+
+        songTitle.textContent = tag.tags.title || "Desconhecido";
+        songArtist.textContent = tag.tags.artist || "Artista Desconhecido";
+      }
+
+      // Definir a capa do álbum como fundo do body
+      function setBackground(tag) {
+        const body = document.body;
+        if (tag.tags.picture) {
+          const picture = tag.tags.picture;
+          const base64String = arrayBufferToBase64(picture.data);
+          body.style.backgroundImage = `url(data:${picture.format};base64,${base64String})`;
+        } else {
+          body.style.backgroundImage = "none";
+        }
+      }
+
+      // Atualizar a capa do álbum no botão de upload
+      function updateAlbumArt(tag) {
+        const albumArtImg = document.getElementById("albumArt");
+        if (tag.tags.picture) {
+          const picture = tag.tags.picture;
+          const base64String = arrayBufferToBase64(picture.data);
+          albumArtImg.src = `data:${picture.format};base64,${base64String}`;
+        } else {
+          albumArtImg.src = "./placeholder.png";
+        }
+      }
+
+      // Carregar e exibir as letras no formato LRC
       function loadLyrics(tag) {
         const lyricsDiv = document.getElementById("lyrics");
         lyricsDiv.innerHTML = "";
@@ -154,8 +226,17 @@
             lyricsDiv.innerHTML = lyricsData
               .map((line) => `<div data-time="${line.time}">${line.text}</div>`)
               .join("");
-            syncLyricsWithAudio();
-            addLyricsClickHandler(); // Adiciona o evento de clique nas letras
+
+            // Adicionar evento de clique às linhas da letra
+            const lyricsLines = lyricsDiv.querySelectorAll("div");
+            lyricsLines.forEach((line) => {
+              line.addEventListener("click", () => {
+                const time = parseFloat(line.getAttribute("data-time"));
+                const audioPlayer = document.getElementById("audioPlayer");
+                audioPlayer.currentTime = time;
+                audioPlayer.play();
+              });
+            });
           } else {
             lyricsDiv.innerHTML = "<p>Nenhuma letra encontrada.</p>";
           }
@@ -186,83 +267,59 @@
         return lyrics;
       }
 
+      // Função para converter ArrayBuffer para Base64
+      function arrayBufferToBase64(buffer) {
+        let binary = "";
+        const bytes = new Uint8Array(buffer);
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        return window.btoa(binary);
+      }
+
       // Função para sincronizar as letras com o áudio
       function syncLyricsWithAudio() {
         const audioPlayer = document.getElementById("audioPlayer");
         const lyricsDiv = document.getElementById("lyrics");
-        const lyricsContainer = document.getElementById("lyrics-container");
 
         audioPlayer.addEventListener("timeupdate", () => {
           const currentTime = audioPlayer.currentTime;
           const lyricsLines = lyricsDiv.querySelectorAll("div");
 
-          lyricsLines.forEach((line) => line.classList.remove("current-line"));
+          let currentLine = null;
 
-          for (let i = 0; i < lyricsLines.length; i++) {
-            const lineTime = parseFloat(
-              lyricsLines[i].getAttribute("data-time")
-            );
-            const nextLineTime =
-              i < lyricsLines.length - 1
-                ? parseFloat(lyricsLines[i + 1].getAttribute("data-time"))
-                : Infinity;
+          lyricsLines.forEach((line, index) => {
+            const lineTime = parseFloat(line.getAttribute("data-time"));
 
-            if (currentTime >= lineTime && currentTime < nextLineTime) {
-              lyricsLines[i].classList.add("current-line");
-
-              // Rola para manter a linha atual na terceira posição
-              if (i >= 2) {
-                lyricsLines[i - 2].scrollIntoView({
-                  behavior: "smooth",
-                  block: "start",
-                });
-              }
-              break;
+            if (currentTime >= lineTime) {
+              currentLine = line;
             }
+          });
+
+          if (currentLine) {
+            lyricsLines.forEach((line) =>
+              line.classList.remove("current-line")
+            );
+            currentLine.classList.add("current-line");
+
+            // Rolagem automática para a linha atual
+            currentLine.scrollIntoView({ behavior: "smooth", block: "center" });
           }
         });
       }
 
-      // Adiciona o evento de clique nas letras
-      function addLyricsClickHandler() {
-        const lyricsDiv = document.getElementById("lyrics");
-        const audioPlayer = document.getElementById("audioPlayer");
-
-        lyricsDiv.querySelectorAll("div").forEach((line) => {
-          line.addEventListener("click", () => {
-            const time = parseFloat(line.getAttribute("data-time"));
-            audioPlayer.currentTime = time; // Define o tempo da música
-            audioPlayer.play(); // Inicia a reprodução
-          });
-        });
-      }
-
       // Controles de navegação
-      document.getElementById("prevButton").addEventListener("click", () => {
-        currentFileIndex =
-          (currentFileIndex - 1 + fileList.length) % fileList.length;
-        loadFile(fileList[currentFileIndex]);
-        document.getElementById("audioPlayer").play();
-      });
-
       document.getElementById("nextButton").addEventListener("click", () => {
         currentFileIndex = (currentFileIndex + 1) % fileList.length;
         loadFile(fileList[currentFileIndex]);
         document.getElementById("audioPlayer").play();
       });
 
-      // Controle de play/pause
-      const playPauseButton = document.getElementById("playPauseButton");
-      const audioPlayer = document.getElementById("audioPlayer");
-
-      playPauseButton.addEventListener("click", () => {
-        if (audioPlayer.paused) {
-          audioPlayer.play();
-          playPauseButton.innerHTML = '<i class="fas fa-pause"></i>';
-        } else {
-          audioPlayer.pause();
-          playPauseButton.innerHTML = '<i class="fas fa-play"></i>';
-        }
+      document.getElementById("prevButton").addEventListener("click", () => {
+        currentFileIndex =
+          (currentFileIndex - 1 + fileList.length) % fileList.length;
+        loadFile(fileList[currentFileIndex]);
+        document.getElementById("audioPlayer").play();
       });
 
       // Controle de repetição
@@ -276,13 +333,37 @@
       // Reproduzir a próxima música automaticamente
       document.getElementById("audioPlayer").addEventListener("ended", () => {
         if (isRepeat) {
-          audioPlayer.play();
+          document.getElementById("audioPlayer").play(); // Repete a mesma música
         } else {
           currentFileIndex = (currentFileIndex + 1) % fileList.length;
           loadFile(fileList[currentFileIndex]);
-          audioPlayer.play();
+          document.getElementById("audioPlayer").play();
         }
       });
+
+      // Inicializar a sincronização das letras
+      syncLyricsWithAudio();
+
+      // Função para entrar em tela cheia
+      function requestFullscreen() {
+        const element = document.documentElement;
+        if (element.requestFullscreen) {
+          element.requestFullscreen();
+        } else if (element.mozRequestFullScreen) {
+          // Firefox
+          element.mozRequestFullScreen();
+        } else if (element.webkitRequestFullscreen) {
+          // Chrome, Safari, and Opera
+          element.webkitRequestFullscreen();
+        } else if (element.msRequestFullscreen) {
+          // IE/Edge
+          element.msRequestFullscreen();
+        }
+      }
+
+      document
+        .getElementById("fullscreenButton")
+        .addEventListener("click", requestFullscreen);
     </script>
   </body>
 </html>

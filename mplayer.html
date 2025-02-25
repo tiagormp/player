@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <title>MPlayer</title>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
+    />
+    <style>
+      /* Estilos gerais */
+      body {
+        margin: 0;
+        padding: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        background: #2f2f2f;
+        font-family: Arial, sans-serif;
+      }
+
+      .main-container {
+        text-align: center;
+        width: 100%;
+        height: 90%;
+        max-width: 400px;
+        padding: 20px;
+      }
+
+      #audioPlayer {
+        display: none; /* Esconde o player de áudio padrão */
+      }
+
+      #controls {
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        margin-top: 20px;
+      }
+
+      #controls button {
+        font-size: 1.5em;
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: #7e7e7e;
+      }
+
+      #controls button:hover {
+        color: #007bff;
+      }
+
+      #lyrics-container {
+        height: 90%; /* Ajuste a altura conforme necessário */
+        margin-top: 20px;
+        font-size: 2em;
+        line-height: 1.5;
+        overflow-y: auto;
+        text-align: center;
+      }
+
+      #lyrics {
+        margin-top: 20px;
+        color: #7e7e7e;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+
+      .current-line {
+        background: rgba(0, 0, 0, 0.4);
+        color: #fff;
+        border-radius: 10px;
+        padding: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="main-container">
+      <audio id="audioPlayer"></audio>
+      <div id="controls">
+        <button id="selectFolderButton"><i class="fas fa-plus"></i></button>
+        <button id="prevButton"><i class="fas fa-backward"></i></button>
+        <button id="playPauseButton"><i class="fas fa-play"></i></button>
+        <button id="nextButton"><i class="fas fa-forward"></i></button>
+        <button id="repeatButton"><i class="fas fa-redo"></i></button>
+      </div>
+      <div id="lyrics-container">
+        <div id="lyrics">Letras aparecerão aqui.</div>
+      </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
+    <script>
+      let lyricsData = []; // Armazenará as letras com seus timestamps
+      let fileList = []; // Lista de arquivos carregados
+      let currentFileIndex = 0; // Índice do arquivo atual na lista
+      let isRepeat = false; // Controle de repetição
+
+      // Botão para selecionar arquivos MP3
+      document
+        .getElementById("selectFolderButton")
+        .addEventListener("click", () => {
+          const fileInput = document.createElement("input");
+          fileInput.type = "file";
+          fileInput.accept = ".mp3";
+          fileInput.multiple = true; // Permite selecionar vários arquivos
+          fileInput.addEventListener("change", async (event) => {
+            const files = Array.from(event.target.files);
+            fileList = files;
+            if (files.length > 0) {
+              loadFile(files[0]);
+              currentFileIndex = 0;
+            }
+          });
+          fileInput.click();
+        });
+
+      // Carrega e processa o arquivo MP3
+      function loadFile(file) {
+        const audioPlayer = document.getElementById("audioPlayer");
+        audioPlayer.src = URL.createObjectURL(file);
+        audioPlayer.load();
+
+        jsmediatags.read(file, {
+          onSuccess: function (tag) {
+            loadLyrics(tag);
+          },
+          onError: function (error) {
+            console.log("Erro ao ler metadados:", error);
+          },
+        });
+      }
+
+      // Carrega e exibe as letras no formato LRC
+      function loadLyrics(tag) {
+        const lyricsDiv = document.getElementById("lyrics");
+        lyricsDiv.innerHTML = "";
+
+        if (tag.tags.comment) {
+          const comment = tag.tags.comment.text || tag.tags.comment;
+          if (comment) {
+            lyricsData = parseLRC(comment);
+            lyricsDiv.innerHTML = lyricsData
+              .map((line) => `<div data-time="${line.time}">${line.text}</div>`)
+              .join("");
+            syncLyricsWithAudio();
+            addLyricsClickHandler(); // Adiciona o evento de clique nas letras
+          } else {
+            lyricsDiv.innerHTML = "<p>Nenhuma letra encontrada.</p>";
+          }
+        } else {
+          lyricsDiv.innerHTML = "<p>Nenhuma letra encontrada.</p>";
+        }
+      }
+
+      // Função para analisar o formato LRC
+      function parseLRC(lrcText) {
+        const lines = lrcText.split("\n");
+        const lyrics = [];
+        const timeRegex = /\[(\d+):(\d+\.\d+)\]/g;
+
+        lines.forEach((line) => {
+          const matches = [...line.matchAll(timeRegex)];
+          const text = line.replace(timeRegex, "").trim();
+
+          matches.forEach((match) => {
+            const minutes = parseFloat(match[1]);
+            const seconds = parseFloat(match[2]);
+            const time = minutes * 60 + seconds;
+            lyrics.push({ time, text });
+          });
+        });
+
+        lyrics.sort((a, b) => a.time - b.time);
+        return lyrics;
+      }
+
+      // Função para sincronizar as letras com o áudio
+      function syncLyricsWithAudio() {
+        const audioPlayer = document.getElementById("audioPlayer");
+        const lyricsDiv = document.getElementById("lyrics");
+        const lyricsContainer = document.getElementById("lyrics-container");
+
+        audioPlayer.addEventListener("timeupdate", () => {
+          const currentTime = audioPlayer.currentTime;
+          const lyricsLines = lyricsDiv.querySelectorAll("div");
+
+          lyricsLines.forEach((line) => line.classList.remove("current-line"));
+
+          for (let i = 0; i < lyricsLines.length; i++) {
+            const lineTime = parseFloat(
+              lyricsLines[i].getAttribute("data-time")
+            );
+            const nextLineTime =
+              i < lyricsLines.length - 1
+                ? parseFloat(lyricsLines[i + 1].getAttribute("data-time"))
+                : Infinity;
+
+            if (currentTime >= lineTime && currentTime < nextLineTime) {
+              lyricsLines[i].classList.add("current-line");
+
+              // Rola para manter a linha atual na terceira posição
+              if (i >= 2) {
+                lyricsLines[i - 2].scrollIntoView({
+                  behavior: "smooth",
+                  block: "start",
+                });
+              }
+              break;
+            }
+          }
+        });
+      }
+
+      // Adiciona o evento de clique nas letras
+      function addLyricsClickHandler() {
+        const lyricsDiv = document.getElementById("lyrics");
+        const audioPlayer = document.getElementById("audioPlayer");
+
+        lyricsDiv.querySelectorAll("div").forEach((line) => {
+          line.addEventListener("click", () => {
+            const time = parseFloat(line.getAttribute("data-time"));
+            audioPlayer.currentTime = time; // Define o tempo da música
+            audioPlayer.play(); // Inicia a reprodução
+          });
+        });
+      }
+
+      // Controles de navegação
+      document.getElementById("prevButton").addEventListener("click", () => {
+        currentFileIndex =
+          (currentFileIndex - 1 + fileList.length) % fileList.length;
+        loadFile(fileList[currentFileIndex]);
+        document.getElementById("audioPlayer").play();
+      });
+
+      document.getElementById("nextButton").addEventListener("click", () => {
+        currentFileIndex = (currentFileIndex + 1) % fileList.length;
+        loadFile(fileList[currentFileIndex]);
+        document.getElementById("audioPlayer").play();
+      });
+
+      // Controle de play/pause
+      const playPauseButton = document.getElementById("playPauseButton");
+      const audioPlayer = document.getElementById("audioPlayer");
+
+      playPauseButton.addEventListener("click", () => {
+        if (audioPlayer.paused) {
+          audioPlayer.play();
+          playPauseButton.innerHTML = '<i class="fas fa-pause"></i>';
+        } else {
+          audioPlayer.pause();
+          playPauseButton.innerHTML = '<i class="fas fa-play"></i>';
+        }
+      });
+
+      // Controle de repetição
+      document.getElementById("repeatButton").addEventListener("click", () => {
+        isRepeat = !isRepeat;
+        document
+          .getElementById("repeatButton")
+          .classList.toggle("active", isRepeat);
+      });
+
+      // Reproduzir a próxima música automaticamente
+      document.getElementById("audioPlayer").addEventListener("ended", () => {
+        if (isRepeat) {
+          audioPlayer.play();
+        } else {
+          currentFileIndex = (currentFileIndex + 1) % fileList.length;
+          loadFile(fileList[currentFileIndex]);
+          audioPlayer.play();
+        }
+      });
+    </script>
+  </body>
+</html>
